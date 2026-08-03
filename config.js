@@ -74,7 +74,8 @@ window.CLEARSKY_CONFIG = {
       'editor',        // BESS Site Map            (design,      tier 1)
       'batterysizer',  // Battery Sizer            (finance,     tier 1)
       'sales',         // Sales Proposal Builder   (sales,       tier 1)
-      'financing'      // Financing Partners       (marketplace, tier 0)
+      'financing',     // Financing Partners       (marketplace, tier 0)
+      'intake'         // Project Intake           (permitting,  tier 0)
     ],
 
     /* Branding for customer-facing exports (proposals, PDFs). */
