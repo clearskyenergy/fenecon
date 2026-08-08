@@ -196,3 +196,56 @@ filename — nothing else needs to change.
 caps, without a legal suffix). If this trial is specifically for the US entity,
 change `clientName` and `exportBrand.name` to "FENECON Inc" — the logo filename
 you sent suggests that may be the intent, and it's a two-line edit.
+
+---
+
+## Terms of Service gate
+
+New accounts must accept Terms of Service before the portal renders. Two shared
+files carry this — both byte-identical across every tenant:
+
+| File | Role |
+|---|---|
+| `omega-terms.js` | The gate: consent checkbox, terms modal, Firestore record |
+| `firestore-terms.rules` | The rule that must be deployed for it to work |
+
+`index.html` gained exactly one `<script>` tag; nothing else in it changed.
+
+**Two layers, deliberately.** The sign-up form gets a consent checkbox that
+blocks account creation while unticked. But the real enforcement is a gate that
+runs after authentication and before the app renders — because a checkbox on the
+sign-up form would miss Google sign-in entirely (a first-time Google user never
+sees that form) and would miss version bumps.
+
+**Acceptance is recorded**, which is the part that gives it weight: uid, email,
+orgId, version and a server timestamp land at `termsAcceptances/{uid}`. A
+checkbox nobody stored is close to worthless in a dispute.
+
+**Amending the terms:** bump `TERMS_VERSION` at the top of `omega-terms.js`.
+Every user is re-prompted on their next load. The rule permits an update only
+when the version string actually changes, so an existing acceptance can't be
+silently rewritten with a fresh timestamp.
+
+### ⚠ Deploy the rule
+
+```
+firebase deploy --only firestore:rules
+```
+
+Until `termsAcceptances` is live in Firebase the acceptance write returns
+permission-denied and the gate **fails closed — nobody can sign in, on any
+tenant**. That direction is deliberate (failing open would let people through
+ungated), but it means a forgotten rules deploy looks like a total outage. The
+modal names the missing rule when it happens. Confirm the rule appears in
+Firebase Console → Firestore → Rules before calling it done.
+
+### Not legal advice
+
+The terms are a standard SaaS starting point covering platform IP ownership,
+licence scope, use restrictions (no reverse engineering, resale, white-labelling
+or competing use), customer data ownership, confidentiality, trial terms, and an
+engineering-output disclaimer stating that generated site plans, one-lines and
+pro formas are estimates rather than sealed engineering documents. **Have a
+lawyer review before relying on any of it.** Two placeholders are marked REVIEW
+in the file: governing law and venue (currently Iowa) and the formal notice
+address (currently `dev@clearsky-usa.com`).

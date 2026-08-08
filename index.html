@@ -2269,6 +2269,10 @@ window._omegaReady = function(){
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="/config.js"></script>
 <script src="/omega-brand.js"></script>
+<!-- Terms of Service acceptance gate. Shared platform file, no tenant data.
+     Wraps toggleAuthMode / emailAuth / showApp defined further down, so it
+     polls briefly for them rather than assuming script order. -->
+<script src="/omega-terms.js"></script>
 <script src="https://tools.csebuilders.com/omega-tools.js?v=8"></script>
 
 <script>
