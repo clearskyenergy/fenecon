@@ -1,87 +1,185 @@
 /* ══════════════════════════════════════════════════════════════════════════
-   REFERRALS — Firestore + Storage rules
-   Merge these into your existing rules files and deploy. Until you do, the
-   Referrals block renders an error line and sending a referral is refused.
+   REFERRALS — rules to MERGE into the clearsky-portal ruleset
+   ─────────────────────────────────────────────────────────────────────────
+   ⚠ THIS REPLACES THE EARLIER STANDALONE DRAFT. That draft carried its own
+   userOrg() helper, which would have COLLIDED with the one already in your
+   merged file — a duplicate function definition is a compile error, and a
+   ruleset that fails to compile leaves the previous version running and says
+   nothing. The block below defines no helpers at all.
 
-     firebase deploy --only firestore:rules
-     firebase deploy --only storage
+   It also could not have worked as written: your userOrg() folds fenecon.de
+   and fenecon.us onto fenecon.com via orgAlias(), and the draft's did not.
 
-   Referrals are the one CROSS-TENANT object on the platform. Everything else
-   is scoped to a single orgId and can be checked against the signed-in user's
-   own org; a referral deliberately spans two. That makes this rule the whole
-   security story rather than a formality, so read it before deploying it.
+   ── WHAT TO DO ──
+   1. Paste the Firestore block below into your merged rules file, immediately
+      after the /projects block and before /sites. Nothing else changes.
+   2. Deploy:  firebase deploy --only firestore:rules
+   3. Search the LIVE rules text in the console for `referrals` before calling
+      it done — same check the file's own header asks for on
+      capacityAllocations, and for the same reason.
+   4. Deploy the Storage block at the foot:  firebase deploy --only storage
    ══════════════════════════════════════════════════════════════════════════ */
 
 
-/* ─────────────────────── firestore.rules ─────────────────────── */
+/* ═══════════════ FIRESTORE — insert after /projects ═══════════════ */
 
-// This must match the helper the rest of your rules already use — including
-// the domain aliasing. FENECON signs in from three domains (fenecon.com,
-// fenecon.de, fenecon.us) and all three are pinned to orgId 'fenecon.com' in
-// config.js. If userOrg() derives the org from the raw email domain instead,
-// a @fenecon.de user authenticates into an empty inbox and the failure looks
-// like "there are no referrals" rather than "the rule disagrees with config".
-// Same caveat already noted in README.md under Access rules.
-function userOrg() {
-  return request.auth.token.email.split('@')[1];
-}
+    /* ════════════════════════════════════════════════════════════════════════
+       REFERRAL INBOX  —  referrals                                   ← ADDED
+       ════════════════════════════════════════════════════════════════════════
+       Quote requests. Someone on the platform has a site and wants a price on
+       storage for it; the request lands in the receiving tenant's dashboard
+       with the site, the ask, and whatever documents came with it. Written and
+       read by omega-referrals.js on index.html.
 
-match /referrals/{id} {
+       INSERT IMMEDIATELY AFTER THE /projects BLOCK, before /sites. It
+       introduces NO new helpers — written entirely in signedIn(), userOrg(),
+       ownsDemoBucket() and isOmegaStaff(), which already exist above. A
+       standalone draft carrying its own userOrg() would have collided with
+       yours and changed org resolution for every collection in this database.
 
-  // Readable by the org that sent it and the org it was sent to. Nobody else,
-  // including other tenants in the same Firebase project.
-  allow read: if request.auth != null
-              && (resource.data.toOrgId   == userOrg()
-               || resource.data.fromOrgId == userOrg());
+       ── THE ONLY CROSS-TENANT OBJECT ON THE PLATFORM ──
+       Every other collection here is scoped to ONE org and can be checked
+       against the caller's own. A referral deliberately spans two: it is
+       addressed by toOrgId and sent by fromOrgId, and both sides must be able
+       to see it or the loop doesn't close. That makes this rule the whole
+       security story rather than a formality.
 
-  // Anyone signed in may send one, but only truthfully. Without the fromEmail
-  // check a user could send referrals in a colleague's name; without the
-  // status check they could create one already marked 'won'.
-  allow create: if request.auth != null
-                && request.resource.data.fromEmail == request.auth.token.email
-                && request.resource.data.fromOrgId == userOrg()
-                && request.resource.data.toOrgId is string
-                && request.resource.data.status == 'new';
+       Doc body written by the module:
+         toOrgId        the tenant it is addressed to   — required
+         fromOrgId      the sender's OWN org            — required, pinned
+         fromEmail      the sender, pinned to their token
+         fromName, fromUid
+         siteName, address, ask
+         powerKw, energyKwh, product, stage, neededBy
+         gridScore, bankableScore   0-99 or null, place it on the matrix
+         status         new | reviewing | quoting | quoted | won | lost | declined
+         docs[]         { kind, name, url, source, size, path, addedBy… }
+         activity[]     append-only trail
+         createdAt, updatedAt
 
-  // The RECEIVING org works the referral: status, documents, activity. It may
-  // not rewrite who the referral is from or who it is to, which would
-  // otherwise let a recipient reassign a request to another vendor.
-  allow update: if request.auth != null
-                && resource.data.toOrgId == userOrg()
-                && request.resource.data.toOrgId   == resource.data.toOrgId
-                && request.resource.data.fromOrgId == resource.data.fromOrgId;
+       ── fromOrgId IS THE SENDER'S ORG, NOT THE TENANT'S ──
+       ⚠ THIS BIT US ONCE ALREADY. The module first stamped fromOrgId from
+       config.js, which on FENECON's portal reads 'fenecon.com' for EVERY
+       signed-in user including ClearSky staff previewing it. userOrg() for a
+       ClearSky address is 'clearsky-usa.com', the create clause below refused
+       the write, and the only symptom was a dialog saying the rule was
+       missing — when the rule was fine and the client was lying about who it
+       was. omega-referrals.js now derives it from the signed-in email domain.
 
-  // The SENDING org may keep adding documents after the fact — the site map
-  // often arrives a day later — but must not touch the status. Otherwise a
-  // sender could mark their own request 'won' in the recipient's pipeline.
-  allow update: if request.auth != null
-                && resource.data.fromOrgId == userOrg()
-                && request.resource.data.status    == resource.data.status
-                && request.resource.data.toOrgId   == resource.data.toOrgId
-                && request.resource.data.fromOrgId == resource.data.fromOrgId;
+       ⚠ AND IT MIRRORS orgAlias(). The module carries its own ORG_ALIAS map
+       folding fenecon.de and fenecon.us onto fenecon.com, because a .de user
+       stamping fromOrgId 'fenecon.de' fails this clause outright. Same
+       mirroring the Site Finder already does, and the same way it breaks: add
+       a tenant alias to BOTH orgAlias() above and ORG_ALIAS in the module, or
+       that tenant can read referrals and cannot send one.
 
-  // A referral is the record of who asked for what and when. Close it with
-  // status 'declined' or 'lost'; don't delete it.
-  allow delete: if false;
-}
+       ── WHY isOmegaStaff() AND NOT isConsoleViewer() ──
+       isOmegaStaff() is here because ClearSky reps work every customer's queue
+       and sending a site to a manufacturer on a client's behalf is the job.
+       isConsoleViewer() is deliberately absent: it grants sunesol.com and
+       ogisolar.com a cross-org read, and a referral carries a site address,
+       what the sponsor is willing to pay for, and the sponsor's own contact —
+       which is a live prospect, not a drawing. Same reasoning as /sites.
+       ════════════════════════════════════════════════════════════════════════ */
+    match /referrals/{referralId} {
+
+      /* Is org `o` one the caller may act as? Own org, or a demo bucket they
+         own. Deliberately does NOT fold in isOmegaStaff() — the two are ORed
+         separately below so it is visible at each clause whether staff are
+         included, rather than hidden inside a helper. */
+      function refMine(o) {
+        return o != '' && (o == userOrg() || ownsDemoBucket(o));
+      }
+
+      /* The recipient and the sender. Nobody else, including other tenants in
+         this same Firebase project.
+
+         THIS IS ALSO WHAT MAKES THE MODULE'S QUERY LEGAL. It asks
+         .where('toOrgId','==',ORG), and Firestore refuses a LIST query the
+         moment one returned document fails — so the queried org and userOrg()
+         must be the same string. They are, because the module queries the
+         tenant orgId and userOrg() folds the aliases onto it. */
+      allow read: if signedIn()
+                  && (refMine(resource.data.get('toOrgId', ''))
+                   || refMine(resource.data.get('fromOrgId', ''))
+                   || isOmegaStaff());
+
+      /* Anyone signed in may send one, but only truthfully.
+
+         Without the fromEmail check a user could file referrals in a
+         colleague's name; without the status pin they could file one already
+         marked 'won' in someone else's pipeline; without the empty-docs check
+         they could attach a URL to a document nobody uploaded.
+
+         .lower() ON BOTH SIDES. A token arriving as Menachem@ConcordEnergyUSA
+         .com would otherwise be refused with permission-denied while everyone
+         else in the same tenant worked — the single-user failure this file
+         has already had to fix twice. */
+      allow create: if signedIn()
+                    && request.resource.data.fromEmail is string
+                    && request.resource.data.fromEmail.lower()
+                         == request.auth.token.email.lower()
+                    && (request.resource.data.fromOrgId == userOrg()
+                        || ownsDemoBucket(request.resource.data.fromOrgId)
+                        || isOmegaStaff())
+                    && request.resource.data.toOrgId is string
+                    && request.resource.data.toOrgId.size() > 0
+                    && request.resource.data.status == 'new'
+                    && request.resource.data.get('docs', []).size() == 0;
+
+      /* 1 · THE RECIPIENT works the referral: status, documents, activity,
+             scores. It may not rewrite who the request is from or who it is
+             to — that would let a recipient quietly reassign a live enquiry to
+             another vendor, or claim one addressed to somebody else. */
+      allow update: if signedIn()
+                    && (refMine(resource.data.get('toOrgId', '')) || isOmegaStaff())
+                    && request.resource.data.toOrgId   == resource.data.toOrgId
+                    && request.resource.data.fromOrgId == resource.data.fromOrgId
+                    && request.resource.data.fromEmail == resource.data.fromEmail;
+
+      /* 2 · THE SENDER may keep attaching. The site map routinely arrives a
+             day after the referral does, and making them re-send the whole
+             request to add one PDF is how requests get duplicated.
+
+             hasOnly() pins everything else, which is what stops a sender
+             marking their own request 'won' in the recipient's pipeline, or
+             quietly revising the ask after a price was given against it. */
+      allow update: if signedIn()
+                    && refMine(resource.data.get('fromOrgId', ''))
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['docs', 'activity', 'updatedAt']);
+
+      /* A referral is the record of who asked for what and when. Close it as
+         'declined' or 'lost'; the module has no delete path and neither does
+         this. If one genuinely has to go, remove it from the Firebase console
+         with admin credentials and expect to account for it. */
+      allow delete: if false;
+    }
 
 
-/* ─────────────────────── storage.rules ─────────────────────── */
+/* ═══════════════ STORAGE — storage.rules ═══════════════
+   Separate file, separate deploy. Without it uploads return
+   storage/unauthorized. Link attachments (Drive, SharePoint) still work, so
+   the block degrades to links-only rather than breaking — but it degrades
+   quietly, so check for `referrals` in the live storage rules too.
 
-// Path is referrals/{orgId}/{referralId}/{timestamp}-{filename}, written by
-// upload() in omega-referrals.js.
-match /referrals/{orgId}/{referralId}/{file} {
+   The path segment is the RECIPIENT's org: referrals/{toOrgId}/{id}/{file}.
+   Written by upload() in omega-referrals.js.
 
-  // Any signed-in user may read. The download URL already carries an
-  // unguessable token, and the Firestore rule above is what keeps that URL
-  // out of the wrong hands — a user who cannot read the referral never sees
-  // the link. Tightening this to a per-org check requires the orgId segment
-  // to be matched against userOrg(), which breaks the sender's own access to
-  // the file they just uploaded.
-  allow read: if request.auth != null;
+     match /referrals/{orgId}/{referralId}/{file} {
 
-  // 25MB matches referrals.maxUploadMb in config.js. Keep the two in step:
-  // the client check is a courtesy, this one is the limit.
-  allow write: if request.auth != null
-               && request.resource.size < 25 * 1024 * 1024;
-}
+       // Any signed-in user may read. The download URL already carries an
+       // unguessable token, and the Firestore rule above is what keeps that
+       // URL out of the wrong hands — a user who cannot read the referral
+       // never sees the link. Constraining orgId to the caller's own org here
+       // looks tighter and is not: it breaks the SENDER's access to the file
+       // they uploaded a moment ago, because the path is named after the
+       // recipient.
+       allow read: if request.auth != null;
+
+       // 25MB matches referrals.maxUploadMb in config.js. Keep the two in
+       // step: the client check is a courtesy, this one is the limit.
+       allow write: if request.auth != null
+                    && request.resource.size < 25 * 1024 * 1024;
+     }
+   ══════════════════════════════════════════════════════════════════════════ */

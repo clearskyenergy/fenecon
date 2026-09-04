@@ -117,6 +117,33 @@
   }
 
   function orgId() { return ws().orgId || ''; }
+
+  /* ── Which org is the SIGNED-IN USER in? ────────────────────────────────
+     NOT the same as orgId(). orgId() is the tenant this deployment serves and
+     is pinned in config.js — on FENECON's portal it reads 'fenecon.com' for
+     everyone who signs in, ClearSky staff previewing it included.
+
+     For a referral that distinction is the entire point. toOrgId is the tenant
+     the request is addressed to; fromOrgId is the SENDER'S OWN org. Stamping
+     fromOrgId from config had a ClearSky admin filing referrals as
+     fenecon.com, which the Firestore rule refuses outright — the rule requires
+     fromOrgId == userOrg(), and userOrg() is derived from the signed-in email
+     domain, not from this deployment's config.
+
+     ⚠ ORG_ALIAS MIRRORS orgAlias() IN firestore.rules, DELIBERATELY.
+     FENECON signs in from fenecon.com, fenecon.de and fenecon.us and all three
+     fold to one org. If these two lists drift, the rule and the client
+     disagree about who the sender is, and every referral filed from an aliased
+     domain is refused with permission-denied and nothing says why. That is the
+     same failure the capacity ledger already hit. Add a tenant to BOTH. */
+  var ORG_ALIAS = {
+    'fenecon.de': 'fenecon.com',
+    'fenecon.us': 'fenecon.com'
+  };
+  function myOrg() {
+    var d = (myEmail().split('@')[1] || '').toLowerCase();
+    return ORG_ALIAS[d] || d;
+  }
   function clientName() { return ws().clientName || 'this workspace'; }
 
   function me() {
@@ -956,7 +983,7 @@
        Only for the receiving org, so a sender previewing their own referral
        doesn't mark it read on the recipient's behalf. */
     var r = byId(id);
-    if (r && r.status === 'new' && (r.toOrgId === orgId())) {
+    if (r && r.status === 'new' && r.toOrgId === myOrg()) {
       patch(id, { status: 'reviewing' }, (myName() || 'Someone') + ' opened this request')['catch'](function () {});
     }
     setTimeout(function () { var b = $('or-dclose'); if (b) b.focus(); }, 60);
@@ -1213,7 +1240,7 @@
 
     storage().then(function (st) {
       var safe = file.name.replace(/[^\w.\- ]+/g, '_').slice(0, 120);
-      var path = 'referrals/' + orgId() + '/' + r.id + '/' + Date.now() + '-' + safe;
+      var path = 'referrals/' + (r.toOrgId || orgId()) + '/' + r.id + '/' + Date.now() + '-' + safe;
       var ref = st.ref(path);
       var task = ref.put(file, { contentType: file.type || 'application/octet-stream' });
 
@@ -1330,7 +1357,7 @@
     var g = num($('or-c-grid').value), b = num($('or-c-bank').value);
     var rec = {
       toOrgId:    to,
-      fromOrgId:  orgId(),
+      fromOrgId:  myOrg(),
       fromEmail:  myEmail(),
       fromName:   myName(),
       fromUid:    (me() && me().uid) || '',
