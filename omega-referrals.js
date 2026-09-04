@@ -65,7 +65,14 @@
 
     /* Who may send a referral from this deployment. 'any' = every signed-in
        user; 'admin' = ClearSky staff only (adminDomains in config.js). */
-    canRefer: 'any'
+    canRefer: 'any',
+
+    /* Shows a "Load demo data" button in the empty state, which writes a
+       realistic portfolio and inbox in one click. OFF unless a tenant turns it
+       on, so a live customer can never see it — and turn it off again once the
+       trial converts, or somebody will eventually click it on real data.
+       It refuses to run a second time if seeded records already exist. */
+    demoSeed: false
   };
 
   var MARKET_FLOOR = { tightest: 60, tight: 50, open: 40 };
@@ -112,7 +119,8 @@
       scoreNames:  c.scoreNames  || DEFAULTS.scoreNames,
       market:      c.market      || DEFAULTS.market,
       maxUploadMb: c.maxUploadMb || DEFAULTS.maxUploadMb,
-      canRefer:    c.canRefer    || DEFAULTS.canRefer
+      canRefer:    c.canRefer    || DEFAULTS.canRefer,
+      demoSeed:    c.demoSeed === true
     };
   }
 
@@ -372,6 +380,12 @@
       /* ── empty ── */
       '#or-block .or-empty{text-align:center;padding:34px 20px;color:var(--sap-ink-2,#556B82);font-size:13px;line-height:1.6}',
       '#or-block .or-empty b{display:block;color:var(--sap-ink,#1D2D3E);font-size:14.5px;margin-bottom:5px}',
+      '#or-block .or-seedbar{margin-top:26px;padding-top:20px;border-top:1px solid var(--sap-card-border,#E4E8EC)}',
+      '#or-block .or-seedhint{font-size:11.5px;color:#8895A3;line-height:1.5;margin-top:9px;max-width:430px;',
+        'margin-left:auto;margin-right:auto}',
+      '#or-block .or-seedhint code{font:500 11px "DM Mono",monospace;background:#F0F2F5;padding:1px 5px;border-radius:4px}',
+      '#or-block .or-seedhint.bad{color:#B3261E}',
+      '#or-block .or-seedbar .or-btn[disabled]{opacity:.5;cursor:wait}',
 
       /* ── drawer ── */
       '#or-scrim{position:fixed;inset:0;background:rgba(12,26,38,.42);z-index:9200;opacity:0;',
@@ -836,6 +850,14 @@
       + ', it arrives here with the site, the ask, and whatever they attached \u2014 '
       + 'site map, scope of work, bill of materials.'
       + (mayRefer() ? '<br><br><button class="or-btn pri" id="or-new2">Send a referral</button>' : '')
+      + (cfg().demoSeed
+          ? '<div class="or-seedbar">'
+            + '<button class="or-btn sec" id="or-seed">Load demo data</button>'
+            + '<div class="or-seedhint">Writes five sites and six quote requests to this '
+            + 'workspace, owned by whoever is signed in. For demos \u2014 turn '
+            + '<code>demoSeed</code> off in config.js before this account is real.</div>'
+            + '</div>'
+          : '')
       + '</div>';
   }
 
@@ -971,6 +993,7 @@
       }
 
       if (t.id === 'or-new2') { openCompose(); return; }
+      if (t.id === 'or-seed')  { seedDemo(); return; }
 
       var row = t.closest ? t.closest('[data-open]') : null;
       if (row) { e.preventDefault(); openDrawer(row.getAttribute('data-open')); }
@@ -1586,6 +1609,234 @@
           + 'see the foot of omega-referrals.js.'
         : 'Could not send: ' + esc(e.message), 'bad');
     });
+  }
+
+  /* ════════════════════════════════════════════════════════════════════════
+     DEMO SEED
+     Off unless referrals.demoSeed is true in config.js. One click writes a
+     portfolio and an inbox so a trial account has something to show, instead
+     of a console procedure with a text editor in the middle of it.
+
+     ── WHAT IT WRITES AS ──
+     Everything is stamped with the SIGNED-IN USER, because that is the only
+     thing the rules allow and the only thing that makes the dashboard's
+     mine/company toggle behave. Sign in as the account you will present from.
+
+     Referrals need a sender org that is not the tenant, or the From column
+     reads "fenecon.com" on every row and it looks like FENECON referring
+     sites to itself. ClearSky staff get that for free — isOmegaStaff() lets
+     them file on anyone's behalf. A tenant user cannot, so the button says so
+     rather than quietly producing a worse demo.
+
+     ── IT REFUSES TO RUN TWICE ──
+     Seeded records carry demo:true / seed:true. If any already exist the
+     button reports the count and stops, because a second click would double
+     every number on the dashboard and the duplicate banner would start firing
+     on rows nobody entered twice.
+     ════════════════════════════════════════════════════════════════════════ */
+
+  var DEMO_SITES = [
+    { name:'Frederick Distribution Center', address:'800 Progress Dr, Frederick, MD 21701',
+      client:'Progress Logistics LLC', type:'bess', stage:'interconnect',
+      bessKwh:2000, capex:1180000, incentive:354000, annualRevenue:268000, quoted:true,
+      utility:'Potomac Edison', program:'MD Energy Storage Pilot',
+      nextAction:'Utility study fee due Sep 19' },
+    { name:'Cedar Rapids Data Center \u2014 Phase 1', address:'2200 Edgewood Rd SW, Cedar Rapids, IA 52404',
+      client:'Meridian Compute', type:'bess', stage:'package',
+      bessKwh:20000, capex:9400000, incentive:2820000, annualRevenue:1940000, quoted:false,
+      utility:'Alliant Energy', program:'MISO capacity',
+      nextAction:'One-line to AHJ for pre-review' },
+    { name:'Vista Cold Storage', address:'1395 Park Center Dr, Vista, CA 92081',
+      client:'Harborline Foods', type:'bess', stage:'permitting',
+      bessKwh:4800, capex:2640000, incentive:792000, annualRevenue:611000, quoted:true,
+      utility:'SDG&E', program:'SGIP \u2014 General Market',
+      nextAction:'Fire clearance letter outstanding' },
+    { name:'LivAway Suites Thornton', address:'12176 Grant Circle, Thornton, CO 80241',
+      client:'LivAway Hospitality', type:'bess', stage:'finance',
+      bessKwh:368, capex:214500, incentive:64350, annualRevenue:47800, quoted:true,
+      utility:'Xcel Energy', program:'Demand management',
+      nextAction:'Term sheet out for signature' },
+    { name:'Clinton Riverfront Retrofit', address:'330 Roberts St, Clinton, IA 52732',
+      client:'S.J Burns LLC', type:'bess', stage:'candidate',
+      bessKwh:180, capex:118000, incentive:35400, annualRevenue:21400, quoted:false,
+      utility:'Alliant Energy', program:'\u2014',
+      nextAction:'Waiting on 12 months of bills' }
+  ];
+
+  var DAY = 86400000;
+
+  /* Chosen to exercise every state the block renders: one new and scored and
+     in the buyer's market with documents, one mid-flight, one already priced
+     so the quote panel and "Out for quote" have data, one unscored so
+     "Waiting for a score" is not empty, a near-duplicate of it so the
+     duplicate banner fires, and one strong on bankability but weak on grid so
+     a square sits OUTSIDE the good corner. */
+  var DEMO_REFERRALS = [
+    { siteName:'800 Progress Dr', address:'800 Progress Dr, Frederick MD 21701',
+      ask:'Budgetary price on a commercial BESS for peak shaving. Roughly 500kW / 2MWh, '
+        + 'outdoor pad, utility is Potomac Edison. Need it for a customer proposal in three weeks.',
+      powerKw:500, energyKwh:2000, product:'Commercial 100', stage:'Pre-development',
+      gridScore:74, bankableScore:81, neededBy:'2026-09-25', status:'new', ageDays:0.04,
+      senderOrg:'clearsky-usa.com', senderName:'Thomas Gilmer',
+      docs:[{kind:'sitemap',name:'800-progress-sitemap.pdf'},{kind:'bom',name:'BOM-rev-C.xlsx'}] },
+
+    { siteName:'Cedar Rapids DC Phase 1', address:'2200 Edgewood Rd SW, Cedar Rapids IA 52404',
+      ask:'Industrial XL, four-hour duration, bridging load for a data centre build. '
+        + 'Indicative pricing plus a realistic lead time before we commit to the interconnect.',
+      powerKw:5000, energyKwh:20000, product:'Industrial XL', stage:'Pre-development',
+      gridScore:88, bankableScore:76, status:'reviewing', ageDays:4,
+      senderOrg:'clearsky-usa.com', senderName:'Grant Ellery',
+      docs:[{kind:'oneline',name:'oneline-r3.pdf'}] },
+
+    { siteName:'1395 Park Center Dr', address:'1395 Park Center Dr, Vista CA 92081',
+      ask:'Cold-storage facility, demand charges are brutal. Industrial L sizing. '
+        + 'Pricing plus lead time, and whether you can hit a Q1 delivery.',
+      powerKw:1200, energyKwh:4800, product:'Industrial L', stage:'Qualified',
+      gridScore:63, bankableScore:66, status:'quoting', ageDays:8,
+      senderOrg:'csebuilders.com', senderName:'CSE Builders',
+      docs:[{kind:'bill',name:'SDGE-12mo.pdf'}] },
+
+    { siteName:'LivAway Suites, Thornton', address:'12176 Grant Circle, Thornton CO 80241',
+      ask:'Hotel back-up plus demand management. Commercial 92, roof-adjacent pad. '
+        + 'Owner wants a firm number before the board meets.',
+      powerKw:92, energyKwh:368, product:'Commercial 92', stage:'Referred',
+      gridScore:38, bankableScore:91, status:'quoted', ageDays:20,
+      senderOrg:'clearsky-usa.com', senderName:'Thomas Gilmer',
+      quote:{ total:214500, currency:'USD', product:'Commercial 92, one unit',
+              leadTimeWeeks:16, validUntil:'2026-10-15',
+              notes:'Ex-works Deggendorf. Excludes freight, install and commissioning. '
+                  + 'Assumes outdoor pad and existing 480V service.' },
+      docs:[{kind:'scope',name:'scope-of-work-v2.pdf'}] },
+
+    { siteName:'S.J Burns LLC (330 Roberts)', address:'330 Roberts St, Clinton IA 52732',
+      ask:'Home 20/30 stack for a multi-tenant retrofit. Ballpark only at this stage.',
+      powerKw:60, energyKwh:180, product:'Home 30', stage:'Referred',
+      gridScore:null, bankableScore:null, status:'new', ageDays:2,
+      senderOrg:'csebuilders.com', senderName:'CSE Builders', docs:[] },
+
+    { siteName:'SJ Burns \u2013 330 Roberts', address:'330 Roberts Street, Clinton, IA 52732',
+      ask:'Retrofit at the Roberts St building. Need a number on a Home 30 stack.',
+      powerKw:60, energyKwh:180, stage:'Referred',
+      gridScore:null, bankableScore:52, status:'new', ageDays:1.5,
+      senderOrg:'csebuilders.com', senderName:'CSE Builders', docs:[] }
+  ];
+
+  function seedNote(txt, tone) {
+    var n = $('or-seedhint'); if (!n) return;
+    n.className = 'or-seedhint' + (tone === 'bad' ? ' bad' : '');
+    n.innerHTML = txt;
+  }
+
+  function seedDemo() {
+    var d = db(), u = me();
+    if (!d || !u) { seedNote('Not signed in yet \u2014 wait a moment and try again.', 'bad'); return; }
+
+    var btn = $('or-seed'); btn.disabled = true; btn.textContent = 'Checking\u2026';
+    var staff = isAdmin();
+
+    /* Refuse a second run. Cheaper and clearer than de-duplicating after. */
+    d.collection('projects').where('orgId', '==', orgId()).get().then(function (snap) {
+      var already = 0;
+      snap.forEach(function (doc) { if ((doc.data() || {}).demo === true) already++; });
+      var seededRefs = S.rows.filter(function (r) { return r.seed === true; }).length;
+
+      if (already || seededRefs) {
+        btn.disabled = false; btn.textContent = 'Load demo data';
+        seedNote('Already seeded \u2014 ' + already + ' site' + (already === 1 ? '' : 's')
+          + ' and ' + seededRefs + ' referral' + (seededRefs === 1 ? '' : 's')
+          + ' are here. Clear them from the Firebase console (filter <code>demo</code> '
+          + 'or <code>seed</code> is true) before loading again.', 'bad');
+        return;
+      }
+      return run(staff);
+    })['catch'](function (e) {
+      btn.disabled = false; btn.textContent = 'Load demo data';
+      seedNote('Could not check for existing data: ' + esc(e.message), 'bad');
+    });
+
+    function run(isStaff) {
+      var d = db(), email = myEmail(), name = myName(), org = orgId(), writes = [];
+      var mine = myOrg();
+
+      btn.textContent = 'Loading\u2026';
+      seedNote('Writing five sites and six quote requests\u2026');
+
+      DEMO_SITES.forEach(function (s) {
+        writes.push(d.collection('projects').add({
+          uid: u.uid, orgId: org, ownerEmail: email, ownerName: name,
+          name: s.name, address: s.address, client: s.client,
+          type: s.type, stage: s.stage,
+          bessKwh: s.bessKwh, capex: s.capex, incentive: s.incentive,
+          annualRevenue: s.annualRevenue, quoted: s.quoted,
+          utility: s.utility, program: s.program, nextAction: s.nextAction,
+          /* The four arrays the editor expects to exist. Empty on purpose:
+             its canvas schema is not something to guess at, and a plan that
+             renders wrong in front of a customer is worse than a clean one. */
+          elements: [], conduits: [], bessList: [], annotations: [],
+          demo: true,
+          createdAt: stamp(), updatedAt: stamp()
+        }));
+      });
+
+      DEMO_REFERRALS.forEach(function (r) {
+        var at = Date.now() - Math.round(r.ageDays * DAY);
+        /* fromOrgId MUST equal userOrg() unless the caller is staff — the
+           create rule compares them. A tenant user therefore seeds referrals
+           that appear to come from their own org; the hint below says so. */
+        var from = isStaff ? r.senderOrg : mine;
+        writes.push(
+          d.collection('referrals').add({
+            toOrgId: org, fromOrgId: from,
+            fromEmail: email, fromName: isStaff ? r.senderName : name, fromUid: u.uid,
+            siteName: r.siteName, address: r.address, ask: r.ask,
+            powerKw: r.powerKw || null, energyKwh: r.energyKwh || null,
+            product: r.product || '', stage: r.stage || '', neededBy: r.neededBy || '',
+            gridScore: r.gridScore, bankableScore: r.bankableScore,
+            /* The create clause pins status to 'new' and refuses pre-attached
+               documents, so the real state is a second write below. Working
+               around that would mean seeding data the product itself could
+               never produce. */
+            status: 'new', docs: [],
+            activity: [{ at: at, by: isStaff ? r.senderName : name,
+                         byEmail: email, text: 'Referral sent' }],
+            seed: true,
+            createdAt: stamp(), updatedAt: stamp()
+          }).then(function (ref) {
+            var after = { updatedAt: stamp() }, touched = false;
+            if (r.docs && r.docs.length) {
+              after.docs = r.docs.map(function (x) {
+                return { kind: x.kind, name: x.name, source: 'link',
+                         url: 'https://example.com/sample/' + x.name,
+                         addedBy: email, addedByName: name, addedAt: at };
+              });
+              touched = true;
+            }
+            if (r.status !== 'new') { after.status = r.status; touched = true; }
+            if (r.quote) {
+              after.quote = {
+                total: r.quote.total, currency: r.quote.currency,
+                product: r.quote.product, leadTimeWeeks: r.quote.leadTimeWeeks,
+                validUntil: r.quote.validUntil, notes: r.quote.notes,
+                byName: name, byEmail: email, sentAt: at + 9 * DAY
+              };
+              touched = true;
+            }
+            return touched ? d.collection('referrals').doc(ref.id).update(after) : null;
+          })
+        );
+      });
+
+      return Promise.all(writes).then(function () {
+        seedNote('Done. Reloading so the portfolio picks it up\u2026');
+        setTimeout(function () { global.location.reload(); }, 900);
+      })['catch'](function (e) {
+        btn.disabled = false; btn.textContent = 'Load demo data';
+        seedNote(e.code === 'permission-denied'
+          ? 'Refused. Either the <code>referrals</code> rule is not deployed, or your '
+            + 'address does not resolve to <code>' + esc(org) + '</code>.'
+          : 'Failed: ' + esc(e.message), 'bad');
+      });
+    }
   }
 
   /* ════════════════════════════════════════════════════════════════════════

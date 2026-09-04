@@ -119,7 +119,15 @@ window.CLEARSKY_CONFIG = {
     scoreNames:  { grid: 'Grid Atlas', bankable: 'OGI' },
     market:      'tight',
     maxUploadMb: 25,
-    canRefer:    'admin'
+    canRefer:    'admin',
+
+    /* ⚠ TURN THIS OFF BEFORE THE ACCOUNT IS REAL.
+       Puts a "Load demo data" button in the empty Referrals block. One click
+       writes five sites and six quote requests so a trial has something to
+       show. It refuses to run twice, but on a live account it is a button that
+       writes fake projects into somebody's real portfolio. Delete this line on
+       conversion. */
+    demoSeed:    true
   },
 
   platformName: 'ClearSky-OMEGA',
