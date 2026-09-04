@@ -4382,6 +4382,22 @@ function _paintDash(){
     renderedKeys[ct.key] = true;
   }
   el.innerHTML = html || '<div style="grid-column:1/-1;padding:24px;text-align:center;color:var(--cs-sub)">No tools pinned yet. Add some from the marketplace below.</div>';
+
+  /* ⚠ THE PAINT JUST DESTROYED EVERY LOCK. applyToolLocks() adds a class, a
+     badge and an overlay to LIVE DOM nodes; writing innerHTML above replaces
+     those nodes, so a tile that was locked comes back unlocked.
+
+     It used to be called once at sign-in (see showApp), which is BEFORE this
+     paint — the grid is still empty then, because the paint waits on
+     OMEGATools.hydrate(). Locks were therefore applied to nothing, then
+     re-applied by a later pass, then wiped again by the next paint. That
+     cycle is the "Upgrade" badge flashing on and off, and every pin or unpin
+     re-ran it because _toggle() repaints.
+
+     Calling it here makes lock-after-paint an invariant instead of a race.
+     lockTile() early-returns on an already-locked tile, so this is safe to
+     call as often as the grid is painted. */
+  if (typeof applyToolLocks === 'function') applyToolLocks();
 }
 
 /* Render a tile for a tool that isn't in the shared catalog (direct href). */
@@ -4433,6 +4449,11 @@ function _paintMarket(){
   // infrastructure grid (unchanged, not searched)
   var infra = document.getElementById('infra-grid');
   if (infra){ infra.className='pm-grid'; var ih=''; for (var j=0;j<tools.length;j++){ if (tools[j].category==='marketplace') ih += _tile(tools[j], false); } infra.innerHTML = ih; }
+
+  /* Same reason as _paintDash above: this function replaces the marketplace
+     tiles wholesale, which drops the Upgrade badge off every locked one.
+     Re-apply after the LAST innerHTML write, not the first. */
+  if (typeof applyToolLocks === 'function') applyToolLocks();
 }
 
 function _tile(t, onDash){
