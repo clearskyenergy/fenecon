@@ -104,14 +104,22 @@ window.CLEARSKY_CONFIG = {
      'tight' 5x5, 'open' 6x6. Users can change it from the toolbar; this is
      only the default they land on.
 
-     canRefer: 'any' lets any signed-in user send a referral, which is the
-     point during a trial — ClearSky staff and FENECON's own team can both put
-     sites in. Set to 'admin' to restrict sending to adminDomains below.      */
+     canRefer is 'admin' because FENECON RECEIVES referrals; it does not send
+     them. They are a manufacturer — quote requests arrive from developers and
+     partners, and FENECON answers with a price. A "Send a referral" button on
+     their dashboard invites them to do the one thing this account never does.
+
+     'admin' keeps the composer for ClearSky addresses only (adminDomains
+     below), so your team can put sites in on a customer's behalf and seed the
+     trial, while FENECON's own users see an inbox and a quote form.
+
+     Set to 'any' on a DEVELOPER tenant — someone with sites who wants prices
+     from manufacturers. That is the other side of the same collection.       */
   referrals: {
     scoreNames:  { grid: 'Grid Atlas', bankable: 'OGI' },
     market:      'tight',
     maxUploadMb: 25,
-    canRefer:    'any'
+    canRefer:    'admin'
   },
 
   platformName: 'ClearSky-OMEGA',

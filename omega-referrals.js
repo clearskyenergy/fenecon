@@ -91,10 +91,16 @@
     { key: 'bom',     label: 'Bill of materials' },
     { key: 'oneline', label: 'One-line diagram' },
     { key: 'bill',    label: 'Utility bill' },
+    { key: 'quote',   label: 'Quote / pricing' },
     { key: 'other',   label: 'Other' }
   ];
 
   var ACCEPT = '.pdf,.png,.jpg,.jpeg,.xlsx,.xls,.csv,.docx,.dwg,.dxf';
+
+  /* FENECON quotes in both, being a German manufacturer with a US arm. The
+     symbol is stored on the quote rather than assumed, so a EUR quote does not
+     render as dollars on somebody else's screen. */
+  var CURRENCY = { USD: '$', EUR: '\u20AC', GBP: '\u00A3' };
 
   /* ════════════════════════════════════════════════════════════════════════
      CONFIG / IDENTITY
@@ -248,6 +254,19 @@
     return isFinite(n) ? n : null;
   }
 
+  function money(v, cur) {
+    var n = num(v); if (n === null) return '';
+    var sym = CURRENCY[cur || 'USD'] || '';
+    return sym + Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  }
+
+  /* A quote counts as sent once it has a number on it. Fields typed into the
+     form but never submitted are not a quote. */
+  function quoteOf(r) {
+    var q = r.quote;
+    return (q && num(q.total) !== null) ? q : null;
+  }
+
   /* ════════════════════════════════════════════════════════════════════════
      STYLES
      Everything is prefixed `or-` and scoped under #or-block / #or-drawer /
@@ -394,6 +413,15 @@
         'font:600 12px "DM Sans",sans-serif;color:#1D2D3E;cursor:pointer}',
       '#or-drawer button.sbtn:hover{border-color:#0070F2;color:#0070F2}',
       '#or-drawer button.sbtn.on{background:#1D2D3E;border-color:#1D2D3E;color:#fff}',
+      '#or-drawer .qbox{border:1px solid #CDE3DC;background:#F4FAF8;border-radius:11px;padding:14px 16px}',
+      '#or-drawer .qtop{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}',
+      '#or-drawer .qnum{font:700 24px "DM Sans",sans-serif;color:#0A5B55;letter-spacing:-.5px}',
+      '#or-drawer .qwhen{font-size:11.5px;color:#5D7A74}',
+      '#or-drawer .qnotes{margin-top:11px;padding-top:11px;border-top:1px solid #D9E9E4;',
+        'font-size:12.5px;line-height:1.55;color:#2F4A45;white-space:pre-wrap}',
+      '#or-drawer .qhist{margin-top:9px;font-size:11.5px;color:#5D7A74}',
+      '#or-drawer .qnone{font-size:12.5px;color:#8895A3;line-height:1.55}',
+      '#or-drawer .qrevise{font-size:11.5px;color:#8895A3;margin-bottom:11px;line-height:1.45}',
       '#or-drawer .feed{border-left:2px solid #E9EDF1;padding-left:14px;margin-left:3px}',
       '#or-drawer .feed .ev{margin-bottom:13px;font-size:12.5px;line-height:1.5;color:#3E4C59}',
       '#or-drawer .feed .ev b{color:#1D2D3E}',
@@ -739,7 +767,7 @@
       + '<th style="padding-left:14px">Site</th>'
       + '<th class="or-hide-sm">From</th>'
       + '<th class="or-hide-sm">Asking for</th>'
-      + '<th class="or-hide-sm">Docs</th>'
+      + '<th class="or-hide-sm">Quote</th>'
       + '<th>Status</th>'
       + '<th class="or-hide-sm" style="text-align:right;padding-right:14px">Received</th>'
       + '</tr></thead><tbody>'
@@ -750,6 +778,7 @@
   function rowHtml(r) {
     var st = statusOf(r.status);
     var docs = (r.docs || []).length;
+    var q = quoteOf(r);
     var sq = placed(r)
       ? '<span class="or-chip' + (inMarket(r) ? ' on' : '') + '" title="'
         + esc(axisLabel('grid')) + ' ' + num(r.gridScore) + ' \u00B7 '
@@ -765,12 +794,16 @@
       + '<div class="sub or-fold">' + esc(r.fromName || r.fromEmail || '\u2014')
         + (sizeLine(r) ? ' \u00B7 ' + esc(sizeLine(r)) : '')
         + (docs ? ' \u00B7 ' + docs + (docs === 1 ? ' file' : ' files') : '')
+        + (q ? ' \u00B7 quoted ' + esc(money(q.total, q.currency)) : '')
         + ' \u00B7 ' + ago(r.createdAt) + '</div>'
       + '</td>'
       + '<td class="mut or-hide-sm">' + esc(r.fromName || r.fromEmail || '\u2014')
         + (r.fromOrgId ? '<div class="sub">' + esc(r.fromOrgId) + '</div>' : '') + '</td>'
       + '<td class="mut or-hide-sm">' + esc(sizeLine(r) || r.product || '\u2014') + '</td>'
-      + '<td class="mut or-hide-sm">' + (docs ? docs + (docs === 1 ? ' file' : ' files') : '\u2014') + '</td>'
+      + '<td class="or-hide-sm">' + (q
+          ? '<b>' + esc(money(q.total, q.currency)) + '</b>'
+            + (q.leadTimeWeeks ? '<div class="sub">' + esc(q.leadTimeWeeks) + ' wk lead</div>' : '')
+          : '<span class="mut">\u2014</span>') + '</td>'
       + '<td><span class="or-pill ' + st.tone + '">' + st.label + '</span></td>'
       + '<td class="mut or-hide-sm" style="text-align:right;padding-right:14px;white-space:nowrap">'
         + ago(r.createdAt) + '</td>'
@@ -857,6 +890,7 @@
         + stat('Placed on the grid', placedCount, 'have both scores')
         + stat('Not yet scored', waiting.length, waiting.length
             ? 'need ' + esc(scoreNamesLine()) : 'nothing outstanding')
+        + quotedStat(rows)
       + '</div>'
       + '</div>'
       + (waiting.length ? waitingHtml(waiting) : '');
@@ -868,9 +902,26 @@
     return a + ' or ' + b;
   }
 
+  /* Value sitting with the customer. Only quotes still live count — a lost
+     deal in the total is a number that flatters and decides nothing. Mixed
+     currencies are shown separately rather than added together, because a
+     single figure blending EUR and USD is worse than two honest ones. */
+  function quotedStat(rows) {
+    var by = {}, n = 0;
+    rows.forEach(function (r) {
+      var q = quoteOf(r); if (!q || !statusOf(r.status).open) return;
+      var c = q.currency || 'USD';
+      by[c] = (by[c] || 0) + num(q.total); n++;
+    });
+    if (!n) return stat('Out for quote', 0, 'nothing priced yet');
+    var line = Object.keys(by).map(function (c) { return money(by[c], c); }).join(' + ');
+    return stat('Out for quote', line,
+      n + (n === 1 ? ' quote' : ' quotes') + ' with the customer');
+  }
+
   function stat(k, v, s) {
     return '<div class="or-stat"><div class="k">' + esc(k) + '</div>'
-      + '<div class="v">' + v + '</div><div class="s">' + s + '</div></div>';
+      + '<div class="v">' + esc(String(v)) + '</div><div class="s">' + s + '</div></div>';
   }
 
   function waitingHtml(list) {
@@ -1017,7 +1068,10 @@
     html += '<div class="sec"><h4>The site</h4><dl class="kv">'
       + kv('From', (r.fromName || r.fromEmail || '\u2014')
           + (r.fromOrgId ? ' \u00B7 ' + r.fromOrgId : ''))
-      + kv('Received', dateStr(r.createdAt) + ' \u00B7 ' + ago(r.createdAt))
+      /* ago() falls back to a plain date past a fortnight, so on an older
+         referral this printed the same date twice. */
+      + kv('Received', dateStr(r.createdAt)
+          + (ago(r.createdAt) === dateStr(r.createdAt) ? '' : ' \u00B7 ' + ago(r.createdAt)))
       + (r.product    ? kv('Product line', r.product) : '')
       + (sizeLine(r)  ? kv('Size', sizeLine(r)) : '')
       + (r.stage      ? kv('Project stage', r.stage) : '')
@@ -1051,6 +1105,9 @@
         + 'or paste a Drive or SharePoint link.</div>';
     }
     html += docAdderHtml() + '</div>';
+
+    /* ── The quote ── */
+    html += quoteHtml(r);
 
     /* ── Activity ── */
     var acts = (r.activity || []).slice().sort(function (a, b) { return (b.at || 0) - (a.at || 0); });
@@ -1092,12 +1149,147 @@
   }
 
   function mailto(r) {
-    var subj = 'Quote request \u2014 ' + (r.siteName || 'your site');
-    var body = 'Hi ' + (r.fromName || '') + ',\n\nThanks for sending '
-      + (r.siteName || 'this site') + ' through to ' + clientName() + '.\n\n';
+    var q = quoteOf(r);
+    var site = r.siteName || 'your site';
+    var subj = (q ? 'Quote \u2014 ' : 'Quote request \u2014 ') + site;
+    var body = 'Hi ' + ((r.fromName || '').split(' ')[0]) + ',\n\n';
+    if (q) {
+      body += 'We have priced ' + site + ' at ' + money(q.total, q.currency)
+        + (q.product ? ' for ' + q.product : '') + '.'
+        + (q.leadTimeWeeks ? ' Lead time is ' + q.leadTimeWeeks + ' weeks.' : '')
+        + (q.validUntil ? ' The price holds until ' + q.validUntil + '.' : '')
+        + '\n\n'
+        + (q.notes ? q.notes + '\n\n' : '')
+        + 'The full quote is on the referral in your portal.\n\n';
+    } else {
+      body += 'Thanks for sending ' + site + ' through to ' + clientName() + '.\n\n';
+    }
     return 'mailto:' + encodeURIComponent(r.fromEmail)
       + '?subject=' + encodeURIComponent(subj)
       + '&body=' + encodeURIComponent(body);
+  }
+
+  /* ── THE QUOTE ───────────────────────────────────────────────────────────
+     The other half of the loop, and the half FENECON actually works. A
+     referral arrives asking for a price; this is where the price goes back.
+
+     Only the RECEIVING org sees this form. A sender looking at their own
+     referral sees the quote read-only, which matches the Firestore rule —
+     their update clause is pinned to docs/activity/updatedAt, so a form here
+     would render a button the rules refuse.
+
+     Revising is allowed and keeps the old one: quoteHistory is appended to on
+     every send, so "we came down twice on that job" is answerable six months
+     later. The customer sees the current figure; you keep the path to it. */
+  function amRecipient(r) {
+    return r.toOrgId === myOrg() || isAdmin();
+  }
+
+  function quoteHtml(r) {
+    var q = quoteOf(r);
+    var hist = (r.quoteHistory || []).length;
+    var out = '<div class="sec"><h4>Quote</h4>';
+
+    if (q) {
+      out += '<div class="qbox">'
+        + '<div class="qtop"><span class="qnum">' + esc(money(q.total, q.currency)) + '</span>'
+        + '<span class="qwhen">sent ' + ago(q.sentAt) + (q.byName ? ' by ' + esc(q.byName) : '') + '</span></div>'
+        + '<dl class="kv" style="margin-top:11px">'
+          + (q.product        ? kv('Product', esc(q.product)) : '')
+          + (q.leadTimeWeeks  ? kv('Lead time', esc(q.leadTimeWeeks) + ' weeks') : '')
+          + (q.validUntil     ? kv('Valid until', esc(q.validUntil)) : '')
+        + '</dl>'
+        + (q.notes ? '<div class="qnotes">' + esc(q.notes) + '</div>' : '')
+        + (hist ? '<div class="qhist">' + hist + ' earlier '
+                  + (hist === 1 ? 'version' : 'versions') + ' kept</div>' : '')
+        + '</div>';
+    }
+
+    if (!amRecipient(r)) {
+      if (!q) out += '<div class="qnone">' + esc(clientName())
+        + ' has not priced this yet.</div>';
+      return out + '</div>';
+    }
+
+    out += '<div' + (q ? ' style="margin-top:13px"' : '') + '>'
+      + (q ? '<div class="qrevise">Revising replaces the figure above. The old one is kept.</div>' : '')
+      + '<div class="or-2">'
+        + '<div class="or-f"><label for="or-qtotal">Price</label>'
+          + '<input id="or-qtotal" type="number" min="0" step="1" placeholder="142000"'
+          + ' value="' + (q ? esc(num(q.total)) : '') + '"></div>'
+        + '<div class="or-f"><label for="or-qcur">Currency</label><select id="or-qcur">'
+          + ['USD', 'EUR', 'GBP'].map(function (c) {
+              return '<option value="' + c + '"'
+                + ((q && q.currency === c) || (!q && c === 'USD') ? ' selected' : '')
+                + '>' + c + '</option>';
+            }).join('')
+        + '</select></div>'
+      + '</div>'
+      + '<div class="or-f"><label for="or-qprod">Product</label>'
+        + '<input id="or-qprod" type="text" maxlength="90" placeholder="e.g. Commercial 92, two units"'
+        + ' value="' + (q ? esc(q.product || '') : '') + '"></div>'
+      + '<div class="or-2">'
+        + '<div class="or-f"><label for="or-qlead">Lead time (weeks)</label>'
+          + '<input id="or-qlead" type="number" min="0" step="1" placeholder="16"'
+          + ' value="' + (q ? esc(q.leadTimeWeeks || '') : '') + '"></div>'
+        + '<div class="or-f"><label for="or-qvalid">Valid until</label>'
+          + '<input id="or-qvalid" type="date" value="' + (q ? esc(q.validUntil || '') : '') + '"></div>'
+      + '</div>'
+      + '<div class="or-f"><label for="or-qnotes">What this covers</label>'
+        + '<textarea id="or-qnotes" maxlength="900" placeholder="Ex-works Deggendorf. Excludes '
+        + 'freight, install and commissioning. Assumes outdoor pad and 480V service.">'
+        + (q ? esc(q.notes || '') : '') + '</textarea>'
+        + '<div class="hint">Say what is excluded. A price without its exclusions gets '
+        + 'compared against somebody else\u2019s that had them.</div></div>'
+      + '<div class="act">'
+        + '<button class="or-btn pri" id="or-qsend" style="padding:9px 17px">'
+        + (q ? 'Send revised quote' : 'Send quote') + '</button>'
+      + '</div>'
+      + '<div class="or-msg" id="or-qmsg"></div>'
+      + '</div>';
+
+    return out + '</div>';
+  }
+
+  function sendQuote(r) {
+    var total = num($('or-qtotal').value);
+    if (total === null || total <= 0) {
+      msg('or-qmsg', 'Put a price on it. A quote with no number is a status change, not a quote.', 'bad');
+      return;
+    }
+    var q = {
+      total:         Math.round(total),
+      currency:      $('or-qcur').value,
+      product:       ($('or-qprod').value  || '').trim(),
+      leadTimeWeeks: num($('or-qlead').value),
+      validUntil:    ($('or-qvalid').value || ''),
+      notes:         ($('or-qnotes').value || '').trim(),
+      byName:        myName(),
+      byEmail:       myEmail(),
+      sentAt:        Date.now()
+    };
+
+    var btn = $('or-qsend'); btn.disabled = true;
+    msg('or-qmsg', 'Sending\u2026', '');
+
+    var fields = { quote: q, status: 'quoted' };
+    /* Keep the superseded one. arrayUnion rather than a read-modify-write, so
+       two people pricing the same job at once cannot drop each other's
+       history. */
+    var prev = quoteOf(r);
+    if (prev) fields.quoteHistory = firebase.firestore.FieldValue.arrayUnion(prev);
+
+    patch(r.id, fields,
+      (prev ? 'Revised quote: ' : 'Quote sent: ') + money(q.total, q.currency)
+      + (q.leadTimeWeeks ? ', ' + q.leadTimeWeeks + ' week lead time' : ''))
+      .then(function () {
+        msg('or-qmsg', 'Sent. ' + esc(r.fromName || 'The sender')
+          + ' can see it now \u2014 use Reply below to tell them.', 'good');
+        btn.disabled = false;
+      })['catch'](function (e) {
+        btn.disabled = false;
+        msg('or-qmsg', 'Could not send: ' + esc(e.message), 'bad');
+      });
   }
 
   /* ── Attach a document, from disk or from a link ── */
@@ -1139,6 +1331,7 @@
       }
       if (e.target.id === 'or-drop') $('or-dfile').click();
       if (e.target.id === 'or-dlinkadd') addLink(r);
+      if (e.target.id === 'or-qsend') sendQuote(r);
     });
 
     var drop = $('or-drop');
