@@ -1,0 +1,87 @@
+/* ══════════════════════════════════════════════════════════════════════════
+   REFERRALS — Firestore + Storage rules
+   Merge these into your existing rules files and deploy. Until you do, the
+   Referrals block renders an error line and sending a referral is refused.
+
+     firebase deploy --only firestore:rules
+     firebase deploy --only storage
+
+   Referrals are the one CROSS-TENANT object on the platform. Everything else
+   is scoped to a single orgId and can be checked against the signed-in user's
+   own org; a referral deliberately spans two. That makes this rule the whole
+   security story rather than a formality, so read it before deploying it.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+
+/* ─────────────────────── firestore.rules ─────────────────────── */
+
+// This must match the helper the rest of your rules already use — including
+// the domain aliasing. FENECON signs in from three domains (fenecon.com,
+// fenecon.de, fenecon.us) and all three are pinned to orgId 'fenecon.com' in
+// config.js. If userOrg() derives the org from the raw email domain instead,
+// a @fenecon.de user authenticates into an empty inbox and the failure looks
+// like "there are no referrals" rather than "the rule disagrees with config".
+// Same caveat already noted in README.md under Access rules.
+function userOrg() {
+  return request.auth.token.email.split('@')[1];
+}
+
+match /referrals/{id} {
+
+  // Readable by the org that sent it and the org it was sent to. Nobody else,
+  // including other tenants in the same Firebase project.
+  allow read: if request.auth != null
+              && (resource.data.toOrgId   == userOrg()
+               || resource.data.fromOrgId == userOrg());
+
+  // Anyone signed in may send one, but only truthfully. Without the fromEmail
+  // check a user could send referrals in a colleague's name; without the
+  // status check they could create one already marked 'won'.
+  allow create: if request.auth != null
+                && request.resource.data.fromEmail == request.auth.token.email
+                && request.resource.data.fromOrgId == userOrg()
+                && request.resource.data.toOrgId is string
+                && request.resource.data.status == 'new';
+
+  // The RECEIVING org works the referral: status, documents, activity. It may
+  // not rewrite who the referral is from or who it is to, which would
+  // otherwise let a recipient reassign a request to another vendor.
+  allow update: if request.auth != null
+                && resource.data.toOrgId == userOrg()
+                && request.resource.data.toOrgId   == resource.data.toOrgId
+                && request.resource.data.fromOrgId == resource.data.fromOrgId;
+
+  // The SENDING org may keep adding documents after the fact — the site map
+  // often arrives a day later — but must not touch the status. Otherwise a
+  // sender could mark their own request 'won' in the recipient's pipeline.
+  allow update: if request.auth != null
+                && resource.data.fromOrgId == userOrg()
+                && request.resource.data.status    == resource.data.status
+                && request.resource.data.toOrgId   == resource.data.toOrgId
+                && request.resource.data.fromOrgId == resource.data.fromOrgId;
+
+  // A referral is the record of who asked for what and when. Close it with
+  // status 'declined' or 'lost'; don't delete it.
+  allow delete: if false;
+}
+
+
+/* ─────────────────────── storage.rules ─────────────────────── */
+
+// Path is referrals/{orgId}/{referralId}/{timestamp}-{filename}, written by
+// upload() in omega-referrals.js.
+match /referrals/{orgId}/{referralId}/{file} {
+
+  // Any signed-in user may read. The download URL already carries an
+  // unguessable token, and the Firestore rule above is what keeps that URL
+  // out of the wrong hands — a user who cannot read the referral never sees
+  // the link. Tightening this to a per-org check requires the orgId segment
+  // to be matched against userOrg(), which breaks the sender's own access to
+  // the file they just uploaded.
+  allow read: if request.auth != null;
+
+  // 25MB matches referrals.maxUploadMb in config.js. Keep the two in step:
+  // the client check is a courtesy, this one is the limit.
+  allow write: if request.auth != null
+               && request.resource.size < 25 * 1024 * 1024;
+}

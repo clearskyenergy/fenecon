@@ -239,6 +239,112 @@ ungated), but it means a forgotten rules deploy looks like a total outage. The
 modal names the missing rule when it happens. Confirm the rule appears in
 Firebase Console → Firestore → Rules before calling it done.
 
+---
+
+## Referral inbox
+
+A quote-request intake, rendered as a dashboard block on `index.html`.
+
+Someone on the platform — ClearSky staff, a developer, a partner — has a site
+and wants a price on storage for it. They send a referral. It lands in FENECON's
+dashboard with the site, the ask, and whatever they attached: site map, scope of
+work, bill of materials. FENECON reads it, works it, replies. That is the loop.
+
+| File | Shared? | Role |
+|---|---|---|
+| `omega-referrals.js` | **shared** | The block: inbox, matrix, drawer, uploads |
+| `firestore-referrals.rules` | rules | Firestore + Storage rules that must be deployed |
+
+`index.html` gained exactly one `<script>` tag; nothing else in it changed. Same
+arrangement as the terms gate — patch upstream and copy down, never here.
+
+### Cross-tenant by design
+
+Every other object on the platform is scoped to one `orgId`. A referral spans
+two: it is addressed by `toOrgId`, so a `@fenecon.com` user sees every referral
+sent **to** fenecon.com regardless of who sent it, plus the ones they sent
+themselves, and nothing else. That makes the Firestore rule the entire security
+story rather than a formality. Read it before deploying it.
+
+### The matrix
+
+Referrals carry the same two scores the portfolio matrix uses — how good the
+grid connection is, and how likely the project is to get funded. Both 0–99.
+Grid runs left to right, bankability bottom to top, which puts the corner worth
+chasing at top right. Clicking a populated square filters the request list to it.
+
+A referral missing either score is **not** placed at the origin. It goes into
+"Waiting for a score" with a Missing column naming which product owes the
+number, because a site nobody has scored is not the same as a site that scored
+badly and pretending otherwise loses real projects.
+
+The scores are typed by the sender. They are **not** wired to Grid Atlas or OGI
+— that integration lives on the OSA side and hasn't been built. Until it is,
+expect most inbound referrals to arrive unscored.
+
+The `market` setting sizes the good corner: `tightest` is 4×4 squares, `tight`
+5×5, `open` 6×6. Users can change it from the toolbar; config only sets the
+default they land on.
+
+### Documents
+
+Two routes, because the site map often arrives a day after the referral does:
+
+- **Upload** to Firebase Storage — PDF, image, XLSX, CSV, DOCX, DWG, DXF, 25MB.
+  The Storage SDK is not loaded by `index.html` and is pulled in on first use,
+  so sessions that never attach a file don't pay for it.
+- **Paste a link** — Drive, SharePoint, Dropbox, anything with a URL.
+
+Files are typed by kind (site map, scope of work, bill of materials, one-line,
+utility bill) so the count in the request list means something.
+
+### Duplicate detection
+
+Two referrals for one site is the failure that hides: the work splits across two
+records, each looks half as interesting as the site really is, and nobody
+notices. The banner catches it. Matching folds street and corporate suffixes
+first — "330 Roberts St, Clinton IA" and "330 Roberts Street, Clinton, IA" are
+one site, and a plain strip-the-punctuation comparison misses exactly the case
+the check exists for.
+
+### Configuration
+
+All optional; the block runs with no config at all. In `config.js`:
+
+```js
+referrals: {
+  scoreNames:  { grid: 'Grid Atlas', bankable: 'OGI' },
+  market:      'tight',
+  maxUploadMb: 25,
+  canRefer:    'any'      // or 'admin' to restrict sending to adminDomains
+}
+```
+
+`scoreNames` are the products that supply the two axes. They appear in the
+Missing column so FENECON knows who to chase rather than just that a number is
+absent. Set either to `null` for a generic label.
+
+### ⚠ Deploy the rules
+
+```
+firebase deploy --only firestore:rules
+firebase deploy --only storage
+```
+
+Both are in `firestore-referrals.rules`. Neither fails silently:
+
+- **Firestore rule missing** — the block renders an error line naming the rule,
+  and sending a referral is refused with the same message.
+- **Storage rule missing** — uploads return `storage/unauthorized` and say so.
+  Link attachments still work, so the block degrades to links-only rather than
+  breaking.
+
+One caveat carried over from **Access rules** above: the rule leans on
+`userOrg()`. If that helper derives orgId from the raw email domain rather than
+aliasing `fenecon.de` and `fenecon.us` to `fenecon.com`, those users get an
+empty inbox — and it will look like "there are no referrals" rather than "the
+rule disagrees with config.js."
+
 ### Not legal advice
 
 The terms are a standard SaaS starting point covering platform IP ownership,

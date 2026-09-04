@@ -91,6 +91,29 @@ window.CLEARSKY_CONFIG = {
      get in to demo or troubleshoot.                                          */
   adminDomains: ['csebuilders.com', 'clearsky-usa.com'],
 
+  /* ── Referral inbox ───────────────────────────────────────────────────────
+     Quote requests sent TO this tenant by anyone on the platform. Rendered as
+     a dashboard block on index.html by omega-referrals.js.
+
+     scoreNames are the products that supply the two matrix axes; they appear
+     in the "Missing" column so FENECON knows who to chase for a score rather
+     than just that a number is absent. Set either to null to fall back to a
+     generic label.
+
+     market sets how big the good corner is — 'tightest' is 4x4 squares,
+     'tight' 5x5, 'open' 6x6. Users can change it from the toolbar; this is
+     only the default they land on.
+
+     canRefer: 'any' lets any signed-in user send a referral, which is the
+     point during a trial — ClearSky staff and FENECON's own team can both put
+     sites in. Set to 'admin' to restrict sending to adminDomains below.      */
+  referrals: {
+    scoreNames:  { grid: 'Grid Atlas', bankable: 'OGI' },
+    market:      'tight',
+    maxUploadMb: 25,
+    canRefer:    'any'
+  },
+
   platformName: 'ClearSky-OMEGA',
 
   /* FENECON's own contact address — shown to their users for help with the
