@@ -481,15 +481,33 @@ body{font-family:'DM Sans',sans-serif;background:var(--cs-bg);color:var(--cs-tex
 }
 
 /* ── UPGRADE OVERLAY (locked tools) ── */
-.pm-tile.locked{ position:relative; cursor:pointer; }
-.pm-tile.locked > *:not(.pm-lock){ filter:grayscale(.85) opacity(.45); pointer-events:none; }
+/* ⚠ THESE SELECTORS MUST MATCH WHAT lockTile() DECORATES, WHICH IS EVERY
+   [data-tool] ELEMENT — the app-grid tiles (.pm-tile) AND the Quick Access
+   anchors (.quick-link). They used to name only .pm-tile.
+
+   The consequence on a Quick Access tile was not cosmetic. .quick-link has no
+   `position`, so it computes to static, and lockTile()'s two absolutely
+   positioned children resolved against the nearest positioned ancestor
+   instead of the tile. Measured: the .pm-lock overlay rendered 1100x520 — the
+   whole viewport — as a dark full-bleed panel at z-index 3, held at opacity 0
+   but carrying a .16s opacity transition. Any repaint or hover change flashed
+   it across the page. That is the "Upgrade banner flashing".
+
+   The badge escaped its tile for the same reason, and the grey-out never
+   applied at all, so a locked Quick Access tile rendered at full colour and
+   looked live. */
+.pm-tile.locked,
+.quick-link.locked{ position:relative; cursor:pointer; }
+.pm-tile.locked > *:not(.pm-lock),
+.quick-link.locked > *:not(.pm-lock){ filter:grayscale(.85) opacity(.45); pointer-events:none; }
 .pm-lock{
   position:absolute; inset:0; display:flex; flex-direction:column;
   align-items:center; justify-content:center; gap:6px;
   background:linear-gradient(135deg, rgba(8,56,79,.90), rgba(0,111,154,.88));
   border-radius:inherit; opacity:0; transition:opacity .16s; z-index:3;
 }
-.pm-tile.locked:hover .pm-lock{ opacity:1; }
+.pm-tile.locked:hover .pm-lock,
+.quick-link.locked:hover .pm-lock{ opacity:1; }
 .pm-lock-badge{
   position:absolute; top:8px; right:8px; z-index:4;
   background:var(--cs-accent); color:#04303a; font-size:9px; font-weight:800;
